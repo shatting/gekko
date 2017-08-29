@@ -143,7 +143,7 @@ var plugins = [
     slug: 'performanceAnalyzer',
     async: false,
     modes: ['realtime', 'backtest'],
-    path: config => 'performanceAnalyzer/performanceAnalyzer.js',
+    path: config => 'performanceAnalyzer/performanceAnalyzer.coffee',
   },
   {
     name: 'Redis beacon',

@@ -22,11 +22,6 @@ var cannotLoad = pluginHelper.cannotLoad(pluginMock);
 if(cannotLoad){
   util.die(cannotLoad);
 }
-
-var plugins = require(util.dirs().gekko + 'plugins');
-
-var version = adapter.version;
-
 var dbName = postgresUtil.database();
 
 var mode = util.gekkoMode();
@@ -79,4 +74,12 @@ checkClient.connect(function(err){
   });
 });
 
-module.exports = client;
+module.exports = client
+
+// function() {
+//   client = new pg.Client(config.postgresql.connectionString + "/" + dbName);
+//   client.connect(function(err) {
+//     console.log(err)
+//   });
+//   return client
+// }

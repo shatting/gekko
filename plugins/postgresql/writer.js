@@ -8,7 +8,7 @@ var Store = function(done, pluginMeta) {
   _.bindAll(this);
   this.done = done;
 
-  this.db = handle;
+  this.db = handle();
   this.upsertTables();
 
   this.cache = [];

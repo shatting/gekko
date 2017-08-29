@@ -1,3 +1,4 @@
+require("coffee-script/register");
 var util = require('../../core/util');
 var _ = require('lodash');
 var fs = require('fs');

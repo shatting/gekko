@@ -45,3 +45,4 @@ TMP_*
 .idea
 volumes
 SECRET-api-keys.json
+forexTraining

@@ -1,6 +1,5 @@
 var _ = require('lodash');
 var util = require('../../core/util.js');
-var config = util.getConfig();
 var log = require(util.dirs().core + 'log');
 
 var handle = require('./handle');
@@ -102,7 +101,9 @@ Reader.prototype.get = function(from, to, what, next) {
   if(what === 'full'){
     what = '*';
   }
-
+  // console.log(`SELECT ${what} from ${postgresUtil.table('candles')}
+  // WHERE start <= ${to} AND start >= ${from}
+  // ORDER BY start ASC)`);
   var query = this.db.query(`
   SELECT ${what} from ${postgresUtil.table('candles')}
   WHERE start <= ${to} AND start >= ${from}
@@ -135,16 +136,12 @@ Reader.prototype.count = function(from, to, next) {
 }
 
 Reader.prototype.countTotal = function(next) {
-  var query = this.db.query(`
-  SELECT COUNT(*) as count from ${postgresUtil.table('candles')}
-  `);
-  var rows = [];
-  query.on('row', function(row) {
-    rows.push(row);
-  });
-
-  query.on('end',function(){
-    next(null, _.first(rows).count);
+  this.db.query(`SELECT COUNT(*) as count from ${postgresUtil.table('candles')}`, function(err, res){
+    if (err) {
+      next(err)
+    } else {
+      next(null, res.rows[0].count);
+    }
   });
 }
 
