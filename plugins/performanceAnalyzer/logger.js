@@ -44,22 +44,37 @@ Logger.prototype.logReport = function(trade, report) {
 }
 
 Logger.prototype.logRoundtripHeading = function() {
-  log.info('(ROUNDTRIP)', 'entry date\t\texit date\t\texposed duration P&L\t\t\tprofit');
-}
+  logRow([
+    'entry date',
+    'exit date',
+    'exposed',
+    'P&L',
+    'profit'
+  ]);
+};
 
 Logger.prototype.logRoundtrip = function(rt) {
-  const display = [
+  logRow([
     rt.entryAt.format('YYYY-MM-DD HH:mm'),
     rt.exitAt.format('YYYY-MM-DD HH:mm'),
     moment.duration(rt.duration).humanize(),
-    rt.pnl,
+    rt.pnl.toPrecision(10),
     rt.profit
-  ];
-
-  log.info('(ROUNDTRIP)', display.join('\t'));
+  ]);
 }
 
+function logRow(columns) {
+  log.info(columns.map(s => padEnd(s,25)).join(""));
+}
 
+function padEnd(s,length) {
+  var sl = (s+"").length;
+  if (sl >= length) {
+    return s;
+  } else {
+    return s + (new Array(length - sl)).join(" ");
+  }
+}
 
 if(mode === 'backtest') {
   // we only want to log a summarized one line report, like:
@@ -111,6 +126,8 @@ if(mode === 'backtest') {
     log.info(`(PROFIT REPORT) Market:\t\t\t\t ${this.round(report.market)}%`);
     log.info();
     log.info(`(PROFIT REPORT) amount of trades:\t\t ${report.trades}`);
+    log.info(`(PROFIT REPORT) amount of roundtrips:\t\t ${this.roundtrips.length} (${report.wins} / ${report.losses})`);
+    log.info(`(PROFIT REPORT) fees:\t\t\t\t ${report.totalFees} ${this.currency}`);
 
     this.logReport(null, report);
 

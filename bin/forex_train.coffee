@@ -40,11 +40,119 @@ getTrainingOptions = (command) ->
   indicators: command.indicators.split(",")
   concurrency: command.concurrency
 
+getTraningOptionsV2 = (command) ->
+  populationCount: command.populationCount
+  generationCount: command.generationCount
+  selectionAmount: command.selectionAmount
+  leafValueMutationProbability: command.leafValueMutationProbability
+  leafSignMutationProbability: command.leafSignMutationProbability
+  logicalNodeMutationProbability: command.logicalNodeMutationProbability
+  leafIndicatorMutationProbability: command.leafIndicatorMutationProbability
+  crossoverProbability: command.crossoverProbability
+  pipInDecimals: 0.0025
+  spread: 1
+  concurrency: command.concurrency
+  treeHeight: 1
+#  strategy: {
+#    "buy": {
+#        "operator": "Or",
+#        "left": {
+#            "indicator": "MACD",
+#            "sign": ">",
+#            "value": 0.0014203584385885553
+#        },
+#        "right": {
+#            "indicator": "RSI14",
+#            "sign": ">",
+#            "value": 60.77270840729591
+#        }
+#    },
+#    "sell": {
+#        "operator": "Or",
+#        "left": {
+#            "indicator": "RSI14",
+#            "sign": "<",
+#            "value": 20.770567435576766
+#        },
+#        "right": {
+#            "indicator": "MACD",
+#            "sign": "<",
+#            "value": -0.0006005087633471459
+#        }
+#    }
+#  }
+  indicators:
+#    EMA10:
+#      type: "EMA"
+#      settings: 10
+#      value: "result"
+#      talib: false
+#    EMA21:
+#      type: "EMA"
+#      settings: 21
+#      value: "result"
+#      talib: false
+#    EMA60:
+#      type: "EMA"
+#      settings: 60
+#      value: "result"
+#      talib: false
+#    RSI240:
+#      type: "RSI"
+#      settings:
+#        interval: 240
+#      value: "rsi"
+#      talib: false
+#    RSI240:
+#      type: "RSI"
+#      settings:
+#        interval: 240
+#      value: "rsi"
+#      talib: false
+#    RSI120:
+#      type: "RSI"
+#      settings:
+#        interval: 120
+#      value: "rsi"
+#      talib: false
+#    PPO:
+#      type: "PPO"
+#      settings:
+#        short: 60
+#        long: 120
+#        signal: 20
+#      value: "ppo"
+#      talib: false
+#    DEMA:
+#      type: "DEMA"
+#      settings:
+#        short: 60
+#        long: 120
+#      value: "result"
+#      talib: false
+    MACD6012020:
+      type: "MACD"
+      settings:
+        short: 60
+        long: 120
+        signal: 20
+      value: "result"
+      talib: false
+    MACD306010:
+      type: "MACD"
+      settings:
+        short: 30
+        long: 60
+        signal: 10
+      value: "result"
+      talib: false
+
 commander
 .option '--testPct <value>', 'test set percentage (default: 10)', Number, 10
 .option '--days-back <days>', 'how many days back should we start', Number
 .option '--evaluate-training', 'evaluate performance on training set', false
 .option '--selector <selector>', 'selector', false
+.option '--version <version>', "forex lib version, either 1 or 2", 2
 
 .command 'train'
 .description 'Train the binary buy/sell decision tree for the forex.analytics strategy'
@@ -66,15 +174,19 @@ commander
 .option '--concurrency <value>', 'number of threads', Number, -1
 .action (command) ->
 
-  trainingOptions = getTrainingOptions command
-  unknownIndicators = forex_utils.getUnknownIndicators trainingOptions.indicators
+  if commander.version is 2
+    trainingOptions = getTraningOptionsV2 command
+  else
+    trainingOptions = getTrainingOptions command
 
-  if unknownIndicators.length
-    console.error 'ERROR: The following indicators are not in forex.analytics: '.red + unknownIndicators.toString().yellow
-    console.error 'Available indicators: ' + forex_utils.availableIndicators.toString()
-    process.exit 1
+    unknownIndicators = forex_utils.getUnknownIndicators trainingOptions.indicators
 
-  dataSet = new DataSet commander.selector, commander.testPct, commander.daysBack
+    if unknownIndicators.length
+      console.error 'ERROR: The following indicators are not in forex.analytics: '.red + unknownIndicators.toString().yellow
+      console.error 'Available indicators: ' + forex_utils.availableIndicators.toString()
+      process.exit 1
+
+  dataSet = new DataSet commander.selector, commander.testPct, commander.daysBack, if commander.version is 2 then trainingOptions.indicators else null
 
   # get candles
   dataSet.populate (err) ->
@@ -83,15 +195,16 @@ commander
 
     console.log dataSet.toJSON()
 
-    trainer = new Trainer dataSet, getTrainingOptions command
+    trainer = new Trainer dataSet, trainingOptions
     trainer.train (err) ->
 
       if err
         throw err
 
-      console.log trainer.toJSON()
+      console.log "Found strategy with final fitness of #{_.last(trainer.fitness)}".red
+      console.log JSON.stringify trainer.strategy, false, 4
 
-      evaluator = new Evaluator dataSet, trainer.strategy, commander.evaluateTraining
+      evaluator = new Evaluator dataSet, trainer.strategy, commander.evaluateTraining, if commander.version is 2 then trainingOptions.indicators else null
       evaluator.run (err) ->
         if err
           throw err
@@ -99,7 +212,7 @@ commander
         writeFinalModel trainer, evaluator
 
 class DataSet
-  constructor: (@selector, @testPercentage, @daysBack) ->
+  constructor: (@selector, @testPercentage, @daysBack, @indicators) ->
 
     config = require "../config.js"
 
@@ -135,7 +248,7 @@ class DataSet
 
       toDate = new Date daterange.to
       fromDate = new Date(toDate -  @daysBack*24*60*60*1000)
-      console.log "getting #{fromDate} -> #{toDate}"
+
       candleGetter.on "data", (candle) =>
         #  start: 1495796760000
         #  open: 0.07541,
@@ -156,6 +269,45 @@ class DataSet
         else
           @trainingIndex = @forexCandles.length - 1
 
+        if @indicators?
+          @getIndicators (err) =>
+            if err
+              throw err
+            cb()
+        else
+          cb()
+
+  getIndicators: (cb) ->
+    # set config for training set
+    console.log "getting indicator values".magenta
+    util = require "../core/util"
+    config = util.getConfig()
+    config.tradingAdvisor.method = "forex"
+    config.forex =
+      indicators: @indicators
+      mode: "getIndicators"
+    config.market =
+      type: "memory"
+    config.memory =
+      candles: @getCandles "gekko"
+
+    # test strategy
+    gekko config, "backtest", (err, res) =>
+
+      if err
+        return cb err
+
+      bar = new ProgressBar "Getting Indicators [:bar] :percent :etas - Candle: :current/:total",
+        width: 80
+        total: config.memory.candles.length
+        incomplete: ' '
+
+      res.gekko.on "consumed", (c) ->
+        bar.tick()
+
+      res.gekko.on "shutdown", =>
+
+        @indicatorValues = res.gekko.getConsumerBySlug("tradingAdvisor").method.indicatorValues
         cb()
 
   getCandles: (dataType, usageType) ->
@@ -171,7 +323,30 @@ class DataSet
     else if usageType is "testing"
       candles[@trainingIndex+1..]
     else
-      throw new Error "unknown usageType #{usageType}"
+      candles
+
+  getCloses: (usageType) ->
+    if usageType is "training"
+      _.map @gekkoCandles[0..@trainingIndex], (c) ->
+        c.close
+    else if usageType is "testing"
+      _.map @gekkoCandles[@trainingIndex+1..], (c) ->
+        c.close
+    else
+      _.map @gekkoCandles, (c) ->
+        c.close
+
+  getIndicatorValues: (usageType) ->
+    # todo: might be shorter than close values
+    res = {}
+    for key, val of @indicatorValues
+      if usageType is "training"
+        res[key] = val[0..@trainingIndex]
+      else if usageType is "testing"
+        res[key] = val[@trainingIndex+1..]
+      else
+        res[key] = val
+    res
 
   toJSON: ->
     training = @getCandles "gekko", "training"
@@ -201,13 +376,24 @@ class Trainer
       incomplete: ' '
 
     # find strategy
-    analytics.findStrategy @dataSet.getCandles("forex","training"), @options, (strategy, fitness, generation) =>
-      @fitness[generation-1] = fitness
-      bar.tick {fitness: fitness.toPrecision(2)}
-    .then (strategy) =>
-      @strategy = strategy
-      cb()
-    .catch cb
+    if commander.version is 2
+      # TODO: indicators might be shorter than close values
+      analytics.findStrategy @dataSet.getCloses("training"), @dataSet.getIndicatorValues("training"), @options, (strategy, fitness, generation) =>
+        @fitness[generation-1] = fitness
+        bar.tick {fitness: fitness.toPrecision(4)}
+      , (err, strategy) =>
+        unless err?
+          @strategy = strategy
+        cb err
+
+    else
+      analytics.findStrategy @dataSet.getCandles("forex","training"), @options, (strategy, fitness, generation) =>
+        @fitness[generation-1] = fitness
+        bar.tick {fitness: fitness.toPrecision(4)}
+      .then (strategy) =>
+        @strategy = strategy
+        cb()
+      .catch cb
 
   toJSON: ->
     strategy: @strategy
@@ -216,14 +402,14 @@ class Trainer
     options: @options
 
 class Evaluator
-  constructor: (@dataSet, @strategy, @evaluateTraining ) ->
+  constructor: (@dataSet, @strategy, @evaluateTraining, @indicators ) ->
     @evaluators =[
       new ForexStrategyEvaluation @dataSet, "testing", @strategy
-      new StrategyEvaluation @dataSet, "testing", @strategy
+      new GekkoStrategyEvaluation @dataSet, "testing", @strategy, @indicators
     ]
     if @evaluateTraining
       @evaluators.push new ForexStrategyEvaluation @dataSet, "training", @strategy
-      @evaluators.push new StrategyEvaluation @dataSet, "training", @strategy
+      @evaluators.push new GekkoStrategyEvaluation @dataSet, "training", @strategy, @indicators
 
   run: (cb) ->
 
@@ -238,19 +424,19 @@ class Evaluator
       res[e.type][e.usageType] = e.toJSON()
     res
 
-class StrategyEvaluation
-  constructor: (@dataSet, @usageType, @strategy) ->
+class GekkoStrategyEvaluation
+  constructor: (@dataSet, @usageType, @strategy, @indicators) ->
     @type = "gekko"
 
   run: (cb) ->
     # set config for training set
-    console.log "#{@type}:#{@usageType} evaluating".magenta
-    util = require "../core/util"
-    config = util.getConfig()
+    console.log "evaluating #{@type}:#{@usageType}".magenta
+    config = require("../core/util").getConfig()
     config.tradingAdvisor.method = "forex"
     config.forex =
       strategy: @strategy
-      history: 50
+      #history: 50
+      indicators: @indicators
     config.market =
       type: "memory"
     config.memory =
@@ -262,7 +448,7 @@ class StrategyEvaluation
       if err
         return cb err
 
-      bar = new ProgressBar "[:bar] :percent :etas - Candle: :current/:total",
+      bar = new ProgressBar "Evaluating '#{@usageType}' [:bar] :percent :etas - Candle: :current/:total",
         width: 80
         total: config.memory.candles.length
         incomplete: ' '
@@ -272,14 +458,16 @@ class StrategyEvaluation
 
       res.gekko.on "shutdown", =>
 
-        @performanceAnalyzer = res.gekko.getConsumerBySlug "performanceAnalyzer"
-        @report = @performanceAnalyzer.calculateReportStatistics()
-        @rawTrades = @performanceAnalyzer.rawTrades
+        performanceAnalyzer = res.gekko.getConsumerBySlug "performanceAnalyzer"
+        @report = performanceAnalyzer.calculateReportStatistics()
+        @rawTrades = performanceAnalyzer.rawTrades
+        @advices = res.gekko.getConsumerBySlug("tradingAdvisor").method.advices
         cb()
 
   toJSON: ->
     report: @report
     rawTrades: @rawTrades
+    advices: @advices
 
 class ForexStrategyEvaluation
   constructor: (@dataSet, @usageType, @strategy)->
@@ -287,38 +475,27 @@ class ForexStrategyEvaluation
 
   run: (cb) ->
 
-    console.log "#{@type}:#{@usageType} evaluating".magenta
-    stopLoss = 0.0030
-    takeProfit = 0.0030
+    console.log "evaluating #{@type}:#{@usageType}".magenta
 
-    @trades = analytics.getTrades @dataSet.getCandles("forex",@usageType), strategy: @strategy
-
+    @trades = analytics.getTrades @dataSet.getCloses(@usageType), @dataSet.getIndicatorValues(@usageType),
+      strategy: @strategy
+    #{startIndex,startPrice,endIndex,endPrice, revenue}
     @report =
       totalRevenue:  0
       totalNoOfTrades: 0
       numberOfProfitTrades: 0
       numberOfLossTrades: 0
-      maximumLoss: 0
 
     for trade in @trades
-      if stopLoss < trade.MaximumLoss
-        revenue = -stopLoss
-      else if takeProfit < trade.MaximumProfit and (not trade.ProfitBeforeLoss or takeProfit > trade.MaximumProfit)
-        revenue = takeProfit
-      else
-        revenue = trade.Revenue or 0
 
-      if revenue > 0
+      if trade.revenue > 0
         @report.numberOfProfitTrades++
       else
         @report.numberOfLossTrades++
       @report.totalNoOfTrades++
-      @report.totalRevenue += revenue
-      if @report.maximumLoss < trade.MaximumLoss
-        @report.maximumLoss = trade.MaximumLoss
+      @report.totalRevenue += trade.revenue
 
-    console.log 'Total theoretical revenue is: ' + @report.totalRevenue + ' PIPS'
-    console.log 'Maximum theoretical loss is: ' + @report.maximumLoss + ' PIPS'
+    console.log 'Total theoretical revenue is: ' + @report.totalRevenue + ' currency'
     console.log 'Total number of Profitable trades is: ' + @report.numberOfProfitTrades
     console.log 'Total number of loss trades is: ' + @report.numberOfLossTrades
     console.log 'Total number of trades is: ' + @report.totalNoOfTrades
@@ -371,15 +548,21 @@ class ForexStrategyEvaluation
       else
         actions = ["sell", "buy"]
 
-      if index is 0
+      if commander.version is 2
         @rawTrades.push
-          action: actions[0]
-          price: trade.start.close
-          date: new Date trade.start.time*1000
-      @rawTrades.push
-        action: actions[1]
-        price: trade.end.close
-        date: new Date trade.end.time*1000
+          action: actions[1]
+          price: trade.StartPrice
+          date: new Date() # // TODO trade.end.time*1000
+      else
+        if index is 0
+          @rawTrades.push
+            action: actions[0]
+            price: trade.start.close
+            date: new Date trade.start.time*1000
+        @rawTrades.push
+          action: actions[1]
+          price: trade.end.close
+          date: new Date trade.end.time*1000
 
     cb()
 
@@ -424,69 +607,32 @@ commander
 .action (file, command) ->
   data = require "../forexTraining/#{file}"
 
-  dataSet = new DataSet data.selector, commander.testPct, commander.daysBack
+  dataSet = new DataSet data.selector, commander.testPct, commander.daysBack, if commander.version is 2 then getTraningOptionsV2({}).indicators else null
   dataSet.populate (err, res) ->
     if err
       throw err
 
-    e = new Evaluator dataSet, data.trainer.strategy, commander.evaluateTraining
+    e = new Evaluator dataSet, data.trainer.strategy, commander.evaluateTraining, if commander.version is 2 then getTraningOptionsV2({}).indicators else null
     e.run (err) ->
       if err
         throw err
 
-      writeHTML data, e, "forex"
+      writeHTML data, e, "gekko"
 
 
 writeFinalModel = (trainer, evaluator) ->
+  results =
+    timestamp: new Date
+    selector:   trainer.dataSet.selector
+    resolution: "1m"
+    evaluation:   evaluator.toJSON()
+    trainer:    trainer.toJSON()
+    dataSet:    trainer.dataSet.toJSON()
 
-#    if so.show_options
-#      options_json = JSON.stringify(options, null, 2)
-#      output_lines.push options_json
-#    if s.my_trades.length
-#      s.my_trades.push
-#        price: s.period.close
-#        size: s.balance.asset
-#        type: 'sell'
-#        time: s.period.time
-#    s.balance.currency = n(s.balance.currency).add(n(s.period.close).multiply(s.balance.asset)).format('0.00000000')
-#    s.balance.asset = 0
-#    s.lookback.unshift s.period
-#    profit = if s.start_capital then n(s.balance.currency).subtract(s.start_capital).divide(s.start_capital) else n(0)
-#    output_lines.push 'end balance: ' + n(s.balance.currency).format('0.00000000').yellow + ' (' + profit.format('0.00%') + ')'
-#    #console.log('start_capital', s.start_capital)
-#    #console.log('start_price', n(s.start_price).format('0.00000000'))
-#    #console.log('close', n(s.period.close).format('0.00000000'))
-#    buy_hold = if s.start_price then n(s.period.close).multiply(n(s.start_capital).divide(s.start_price)) else n(s.balance.currency)
-#    #console.log('buy hold', buy_hold.format('0.00000000'))
-#    buy_hold_profit = if s.start_capital then n(buy_hold).subtract(s.start_capital).divide(s.start_capital) else n(0)
-#    output_lines.push 'buy hold: ' + buy_hold.format('0.00000000').yellow + ' (' + n(buy_hold_profit).format('0.00%') + ')'
-#    output_lines.push 'vs. buy hold: ' + n(s.balance.currency).subtract(buy_hold).divide(buy_hold).format('0.00%').yellow
-#    output_lines.push s.my_trades.length + ' trades over ' + s.day_count + ' days (avg ' + n(s.my_trades.length / s.day_count).format('0.00') + ' trades/day)'
-
-#    html_output = output_lines.map((line) ->
-#      colors.stripColors line
-#    ).join('\n')
-
-    #  start: 1495796760000
-    #  open: 0.07541,
-    #  high: 0.07545108,
-    #  low: 0.07541,
-    #  close: 0.07545108,
-    #  vwp: 0.0754157399286111,
-    #  volume: 67.36543082,
-    #  trades: 8
-
-    results =
-      timestamp: new Date
-      selector:   trainer.dataSet.selector
-      resolution: "1m"
-      evaluation:   evaluator.toJSON()
-      trainer:    trainer.toJSON()
-      dataSet:    trainer.dataSet.toJSON()
-
-
-    fs.writeFileSync "#{results2filename(results)}.json", JSON.stringify(results, false, 4)
-    writeHTML results, evaluator
+  fname = "#{results2filename(results)}.json"
+  fs.writeFileSync fname, JSON.stringify(results, false, 4)
+  console.log fname.green
+  writeHTML results, evaluator
 
 
 results2filename = (results) ->
@@ -546,7 +692,8 @@ writeHTML = (results, evaluator, type = "gekko")->
     .replace '{{output}}', JSON.stringify evaluator.toJSON(), false, 4
     .replace(/\{\{symbol\}\}/g, results.selector)
 
-
-  fs.writeFileSync "#{results2filename(results)}.html", out
+  fname = "#{results2filename(results)}.html"
+  fs.writeFileSync fname, out
+  console.log "file://" + path.join(process.cwd(), fname).green
 
 commander.parse process.argv

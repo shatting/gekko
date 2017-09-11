@@ -4,29 +4,30 @@ moment = require('moment')
 stats = require('../../core/stats')
 util = require('../../core/util')
 ENV = util.gekkoEnv()
-config = util.getConfig()
-perfConfig = config.performanceAnalyzer
-watchConfig = config.watch
 
 # Load the proper module that handles the results
 if ENV is 'child-process'
-  Handler = require('./cpRelay')
+  Handler = require './cpRelay'
 else
-  Handler = require('./logger')
-
+  Handler = require './logger'
 
 class PerformanceAnalyzer
 
   constructor: ->
+    _.bindAll @
+    config = util.getConfig()
+
+    @silent = config.performanceAnalyzer.silent
+    @riskFreeReturn = config.performanceAnalyzer.riskFreeReturn
     @dates =
       start: false
       end: false
 
     @startPrice = 0
     @endPrice = 0
-    @currency = watchConfig.currency
-    @asset = watchConfig.asset
-    @handler = new Handler watchConfig
+    @currency = config.watch.currency
+    @asset = config.watch.asset
+    @handler = new Handler config.watch
     @trades = 0
     @sharpe = 0
     @wins = 0
@@ -36,10 +37,10 @@ class PerformanceAnalyzer
     @roundTrip =
       entry: false
       exit: false
+    @totalFees = 0
 
+  # from market
   processCandle: (candle, done) =>
-#    console.log "performanceAnanlyzer processCandle"
-#    console.log @
     @price = candle.close
     @dates.end = candle.start
     unless @dates.start
@@ -48,45 +49,49 @@ class PerformanceAnalyzer
     @endPrice = candle.close
     done()
 
+  # from trader
   processPortfolioUpdate: (portfolio) =>
     @start = portfolio
     @current = _.clone(portfolio)
 
+  # from trader
   processTrade: (trade) =>
     @trades++
     @rawTrades.push trade
     @current = trade.portfolio
+    @totalFees += trade.fee
     report = @calculateReportStatistics()
     @handler.handleTrade trade, report
-    @logRoundtripPart trade
+    @_logRoundtripPart trade
 
-  logRoundtripPart: (trade) =>
+  _logRoundtripPart: (trade) =>
+    #console.log trade
     # this is not part of a valid roundtrip
-    if @trades == 1 and trade.action == 'sell'
+    if @trades is 1 and trade.action is 'sell'
       return
-    if trade.action == 'buy'
+    if trade.action is 'buy'
       @roundTrip.entry =
         date: trade.date
-        price: @price
-        total: @current.asset * @price
-    else if trade.action == 'sell'
+        price: trade.price
+        balance: trade.portfolio.balance
+    else if trade.action is 'sell'
       @roundTrip.exit =
         date: trade.date
-        price: @price
-        total: @current.currency
-      @handleRoundtrip()
+        price: trade.price
+        balance: trade.portfolio.balance
+      @_handleRoundtrip()
 
-  round: (amount) =>
+  _round: (amount) =>
     amount.toFixed 8
 
-  handleRoundtrip: =>
+  _handleRoundtrip: =>
     roundtrip =
       entryAt: @roundTrip.entry.date
       entryPrice: @roundTrip.entry.price
-      entryBalance: @roundTrip.entry.total
+      entryBalance: @roundTrip.entry.balance
       exitAt: @roundTrip.exit.date
       exitPrice: @roundTrip.exit.price
-      exitBalance: @roundTrip.exit.total
+      exitBalance: @roundTrip.exit.balance
       duration: @roundTrip.exit.date.diff(@roundTrip.entry.date)
 
     roundtrip.pnl = roundtrip.exitBalance - roundtrip.entryBalance
@@ -103,7 +108,7 @@ class PerformanceAnalyzer
     # update the cached sharpe ratio
     @sharpe = stats.sharpe(@roundTrips.map((r) ->
       r.profit
-    ), perfConfig.riskFreeReturn)
+    ), @riskFreeReturn)
 
   calculateReportStatistics: =>
     # the portfolio's balance is measured in {currency}
@@ -130,8 +135,8 @@ class PerformanceAnalyzer
       balance: @end.balance
       profit: profit
       relativeProfit: relativeProfit
-      yearlyProfit: @round profit / timespan.asYears()
-      relativeYearlyProfit: @round relativeProfit / timespan.asYears()
+      yearlyProfit: @_round(profit / timespan.asYears())
+      relativeYearlyProfit: @_round(relativeProfit / timespan.asYears())
       startPrice: @startPrice
       endPrice: @endPrice
       trades: @trades
@@ -142,10 +147,13 @@ class PerformanceAnalyzer
       alpha: profit - market
       wins: @wins
       losses: @losses
+      totalFees: @totalFees
 
     report
 
   finalize: =>
+    if @silent
+      return
     report = @calculateReportStatistics()
     @handler.finalize report
 

@@ -11,16 +11,9 @@ var Indicator = function(config) {
 Indicator.prototype.update = function(price) {
   this.short.update(price);
   this.long.update(price);
-  this.calculateEMAdiff();
+  this.diff = this.short.result - this.long.result;
   this.signal.update(this.diff);
   this.result = this.diff - this.signal.result;
-}
-
-Indicator.prototype.calculateEMAdiff = function() {
-  var shortEMA = this.short.result;
-  var longEMA = this.long.result;
-
-  this.diff = shortEMA - longEMA;
 }
 
 module.exports = Indicator;

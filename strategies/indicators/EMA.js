@@ -27,7 +27,7 @@ Indicator.prototype.calculate = function(price) {
 
   // yesterday
   var y = this.result;
-  
+
   // calculation
   this.result = price * k + y * (1 - k);
 }

@@ -135,7 +135,7 @@ var plugins = [
     async: false,
     modes: ['realtime', 'backtest'],
     emits: ['portfolioUpdate', 'trade'],
-    path: config => 'paperTrader/paperTrader.js',
+    path: config => 'paperTrader/paperTrader.coffee',
   },
   {
     name: 'Performance Analyzer',
