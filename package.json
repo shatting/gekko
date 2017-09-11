@@ -29,6 +29,7 @@
     "co-fs": "^1.2.0",
     "coffee-script": "^1.12.7",
     "commander": "^2.11.0",
+    "forex.analytics": "git@github.com:shatting/forex.analytics.git#feature/IndicatorEvaluationDelegation",
     "gdax": "^0.4.2",
     "gekko": "0.0.9",
     "humanize-duration": "^3.10.0",
